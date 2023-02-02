@@ -1,0 +1,271 @@
+---
+title: "Fittness Regime Model"
+author: "Bonolo Molopyane"
+date: "2023-02-01"
+output:
+  pdf_document: default
+  html_document: default
+---
+## Introduction
+This project aims to predict the class of fitbit used given the manner of readings imputed, i.e the possition a participent was in when performing a certain exercise. We will classify them for the purposes of this exercise as 
+
+A - Sitting
+B - Sitting down
+C - Standing
+D - Standing up
+E - Walking
+
+The datasets for this project are available in the Github repository: https://github.com/Bonolo114/Fitbit-Project and can be downloaded through the following steps.
+Credit is given at this stage to the compilers of the dataset and more information can be obtained at http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har
+```{r data_Input, include=FALSE}
+
+train <- read.csv("C:/Users/Molopyane/Downloads/pml-training.csv")
+test  <- read.csv("C:/Users/Molopyane/Downloads/pml-testing.csv")
+```
+
+Well you"ll use your locataion right!
+
+We will use the train data set to train and test the model and predict the  classes on the test set
+
+
+Before we go any further we then load all the libraries we will make use of.
+We will make use of the randomForest algorithm to train the data because one, its a powerful and second its very easy to implement and interpret
+
+```{r libraries, results = 'hide'}
+library(caret)
+library(dplyr)
+library(randomForest)
+```
+A quick glance of the data via printing the data or running View(train) shows there are a lot of empty and NA values that will make running the algorithm difficult.
+
+```{r}
+#You may view the the data by removing the # below
+#str(train)
+```
+
+This is the critical phase in our assignment as the predictive power of the algorithm rests with the worth of the variables(predictors) used.
+
+Lets first look at the columns that have NA's in them
+
+## Data Cleaning
+
+```{r extraction, results='hide'}
+entries <-train %>% 
+  summarise_all(funs(sum(as.numeric(!is.na(.)), na.rm = TRUE))) %>%
+  collect()
+```
+the results reveal an interesting observation that it is either there column has 19622 entries which means the rows of these columns are entirely populated and other columns have only 406 entries
+
+taking a closer look at the columns shows this is true for all columns i.e
+
+```{r}
+complete_entries <- grep("19622", entries)
+incomplete_entries <- grep("406",entries)
+length(sort(c(complete_entries,incomplete_entries)))
+```
+
+Thus it each row falls in one of these to categories. we checked the length of the columns just for extra precautions and indeed theres 160 entries.
+
+Considering that we have a lot of variables and the data containing 406 values have just 2% of that column populated so we then will agree so as to approach parsimonity remove these columns
+
+```{r}
+train_subset_1 <- train[,complete_entries]
+```
+Taking another look at this new data set we see that the empty spaces are still there. 
+
+There are probably better ways of removing them but I just took a fine tooth comb and craped through and found these columns then concartinated them
+
+```{r}
+em_cols <- c(12:20,43:48,52:60,74:82)
+```
+We then create a dataset without these columns
+```{r}
+train_subset_2 <- train_subset_1[,-em_cols]
+```
+Finally we realise that the first 5 rows cannot be used for our analysis as they are mainly identifiers and time stamps, we concartinate them and use them to build a data set that can be properly used for analysis
+
+```{r}
+redundent<- c(1:5)
+
+new_train <- train_subset_2[,-redundent]
+```
+
+Laslty we will we will just convert the new_window and classe variable into factor variables and we have our tidy data set ready for analysis
+```{r}
+new_train$new_window <- as.factor(new_train$new_window)
+new_train$classe     <- as.factor(new_train$classe)
+```
+
+The next step is to split up the dataset into two for training and testing the model. We will set a seed to prevent the indicators from changing every time we run the code lines and make sure the project is reproducible
+
+```{r}
+set.seed(2242)
+inTrain <- createDataPartition(y = new_train$classe, p= 0.85, list = FALSE)
+training <- new_train[inTrain,]
+testing  <- new_train[-inTrain,]
+```
+
+Seems like everything is ready for incorporation. Let us now fit in the model
+
+## The Model
+
+```{r}
+model <- randomForest(classe~.,data = training, importance = TRUE)
+```
+
+
+Before we predict the values of unknown classes lets see how it performs for the the data we already have, i.e the training and testing set
+
+```{r}
+trainingpredictions <- predict(model,training[,-55])
+confusionMatrix(trainingpredictions,training$classe)
+
+
+testingpredictions <- predict(model,testing[,-55])
+confusionMatrix(testingpredictions,testing$classe)
+```
+
+We see that the predictors used deliver high accuracy thus we deem them sufficient for our purposes
+
+A few more things. We could discuss whether the model as a whole is adequate but the results speak for themselves. What we can check further is how important or significant are the individual predictors we used in this model in improving the model
+
+To do so we will just check the importance each predictor has on the model
+```{r}
+importance<-data.frame(model$importance[,7])
+importance <- arrange(importance,desc(model$importance[,7]))
+sum <- sum(importance )
+importance <- (importance/sum)*100
+importance
+sum(importance)
+```
+So it seems that only the predictor new_window has the smallest predictive power and thus the rest of the predictors remain significant
+
+Moving further towards finding a parsimonious model let us investigate what occurs when we consider the top 5 predictor variables
+
+## Analysis, Countering and challanging the Model
+
+```{r model Optimization}
+importance[1:5,]
+
+model2 <- randomForest(classe~num_window+roll_belt+yaw_belt+magnet_dumbbell_z+pitch_forearm,
+                       data = training, importance = TRUE)
+
+testingpredictions2 <- predict(model2, testing[,-55])
+confusionMatrix(testingpredictions2,testing$classe)
+```
+
+When the testing set is placed under investigation and it is observed that the second model, i.e the one with only 5 predictors perform better than that of 54 predictors. 
+
+The accuracy of the first model is 0.9969 whilst that of the second is 0.998. though it may be a seemingly small difference of 0.0011 but considering the computational time and ease of use the second model is to be preferred.
+
+It may be possible that the high performance  attributed to the number of training windows implored by the participants. Let us extract this predictor and see how well it works on it own
+
+It Suffices to say that the reduced predictors model outperforms the initial.
+
+However it is possible that the training windows variable could have has a major impact on the model so if we look at the model predicted by using just this variable we have that:
+
+```{r}
+model3 <- randomForest(classe~num_window, data = training, importance = TRUE)
+testingpredictions3 <- predict(model3,testing[,-55])
+confusionMatrix(testingpredictions3,testing$classe)
+```
+
+This is astonishing, this model implies that the number of windows alone can predict which position the participant was in when excising. This is possibly the simplest model but somehow has and unsettling feel. 
+
+It beacons us to consider how the top 5 variables perform without the inclusion of the num_window variable
+  
+```{r}  
+model4 <- randomForest(classe~roll_belt+yaw_belt+magnet_dumbbell_z+pitch_forearm, data = training, importance = TRUE)
+testingpredictions4 <- predict(model4,testing[,-55])
+confusionMatrix(testingpredictions4,testing$classe)
+```
+YET again high accuracy is obtained. Could it be that the training set is just too large given that it is over 5.6 times larger than the testing set? 
+
+
+## Reducing the training data
+
+What would happen if we reduced the training set to just 55% of the data.
+
+Assuming that the accuracy patterns will follow that of the above models we will only run the first and forth models and code will be left for the reader to confirm if curious
+
+```{r new models}
+set.seed(2242)
+inTrain2 <- createDataPartition(y = new_train$classe, p= 0.55, list = FALSE)
+training2 <- new_train[inTrain2,]
+testing2  <- new_train[-inTrain2,]
+
+model <- randomForest(classe~.,data = training2, importance = TRUE)
+testingpredictions <- predict(model,testing2[,-55])
+confusionMatrix(testingpredictions,testing2$classe)
+
+#model2b <- randomForest(classe~num_window+roll_belt+yaw_belt+magnet_dumbbell_z+pitch_forearm,
+#                       data = training2, importance = TRUE)
+#testingpredictions2b <- predict(model2b,testing2[,-55])
+#confusionMatrix(testingpredictions2b,testing$classe)
+
+#model3b <- randomForest(classe~num_window, data = training, importance = TRUE)
+#testingpredictions3b <- predict(model3b,testing2[,-55])
+#confusionMatrix(testingpredictions3b,testing2$classe)
+
+model4b <- randomForest(classe~roll_belt+yaw_belt+magnet_dumbbell_z+pitch_forearm,
+                       data = training, importance = TRUE)
+testingpredictions4b <- predict(model4b,testing2[,-55])
+confusionMatrix(testingpredictions4b,testing2$classe)
+```
+
+There is no denying the predictive power of the random forest algorithm even with a reduced dataset high accuracy is still maintained in the test dataset
+
+Just for peace of mind, if we ran a glm how many of the variables will be deemed significant, (this might not a good barometer for our analysis especially at this stage) but would it reveal anything that would contradict our attained observations thus far?
+
+## Logistic Regression: Can they shed any light?
+
+```{r logistic}
+logistic <- glm(classe~.-1,data= training, family = "binomial")
+summary(logistic)
+
+logistic2 <- glm(classe~roll_belt+yaw_belt+magnet_dumbbell_z+pitch_forearm, data = training, family = "binomial")
+summary(logistic2)
+```
+
+Though some of the variables are seen as not significant according to the first logistic regression, these will likely align with the variables that have a lower importance ranking in the random forest model, but the second regression states that all the predictors are significant
+
+The complete logistic regression shows that the following predictors are not significantly different from zero (magnet_forearm_z, gyros_forearm_y@, gyros_forearm_z@, magnet_arm_x, magnet_arm_y, gyros_arm_y@, gyros_arm_z@,accel_belt_x@, gyros_belt_y@, total_accel_belt ,new_window@)
+
+of which 7 of the 11 variables are in the bottom 20 in the importance tables. Although a little can be deduced from this finding but we can be confident in the importance and significance of the predictors 
+
+## Final Prediction: Predicting on new dataset
+
+Skeptical as we have been comfort can be accepted when using the random forest, and this very skepticism move us towards using the forth model using 55% of the training data purely because it moves us a bit out of falling into a saturated (overfitted) model. Therefore
+
+
+Now for the pudding, lets see how it performs for new data. Bus since we reduced the predictors for training we should do the same so that we use 54 predictors as opposed to 159. And that can be simply done as follows
+
+```{r}
+chosen_columns <- names(training[,-55])
+
+validation_set <- test[,chosen_columns]
+validation_set$new_window<- as.factor(validation_set$new_window)
+```
+
+Now you would realize that if you try predict using the validation set as is you get an error stating that the predictors found in this data is different from the one's used in the model. 
+
+A variety of reasons why this is the case may be mentioned, I am still trying to figure it out myself. 
+
+However the work still needs to get done. And for that we implement a nifty trick of adding and removing the first row of the training set to this validation set
+
+```{r}
+validation_set <- rbind(training[1,-55], validation_set)
+validation_set <- validation_set[-1,]
+```
+
+Finally we can now predict on new data set after a few adjustments
+
+```{r final set}
+validationpredictionfinal <- predict(model4b,validation_set)
+validationpredictionfinal
+```
+
+## Conclusion
+The random forest is a powerful predictive algorithm used in many setting including for our purpose determining which position(class) a participant holds during their exercise regime.
+
+Further studies can be incorporated to determine how much impact is each class in the over-all effectiveness of their exercise program but this is beyond our current scope. All that is needed is to find a way to have our accelerometer predict a participant's class and the random forest algorithm sufficiently provides that information.
